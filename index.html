@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Israel Mission Control</title>
+    <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* --- CSS STYLES --- */
+        :root {
+            --primary: #0066ff;
+            --glass: rgba(255, 255, 255, 0.95);
+            --shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            font-family: 'Rubik', sans-serif;
+            background: #a8d5e8; /* Ocean color fallback */
+        }
+
+        /* The Camera Viewport */
+        #viewport {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+            background-color: #a8d5e8;
+        }
+
+        /* The Moving Map */
+        #world-map {
+            position: absolute;
+            transform-origin: 0 0; /* Critical for coordinate math */
+            transition: transform 1.5s cubic-bezier(0.25, 1, 0.5, 1); /* Smooth cinematic fly */
+            will-change: transform;
+        }
+
+        .map-image {
+            /* Map size calibrated to screen height */
+            height: 100vh; 
+            width: auto;
+            display: block;
+            box-shadow: 0 0 50px rgba(0,0,0,0.3);
+        }
+
+        /* The Red Dots */
+        .marker {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: #ff3b30;
+            border: 3px solid white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 10;
+        }
+
+        .marker:hover {
+            transform: translate(-50%, -50%) scale(1.5);
+            background: #ffcc00;
+            z-index: 20;
+        }
+
+        /* Tooltip on Hover */
+        .marker::after {
+            content: attr(data-name);
+            position: absolute;
+            top: -35px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .marker:hover::after { opacity: 1; }
+
+        /* The Glass Card Interface */
+        #interface {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 320px;
+            z-index: 100;
+            pointer-events: none; /* Allows clicking map behind the card area */
+        }
+
+        .glass-panel {
+            background: var(--glass);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(12px);
+            pointer-events: auto; /* Re-enable clicks on the card itself */
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-header h1 {
+            margin: 0;
+            font-size: 22px;
+            color: #333;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #888;
+        }
+
+        .image-frame {
+            height: 180px;
+            width: 100%;
+            background-color: #eee;
+            background-size: cover;
+            background-position: center;
+            transition: opacity 0.3s ease;
+        }
+
+        .content-box {
+            padding: 0 20px;
+            max-height: 250px;
+            overflow-y: auto;
+        }
+
+        ul { padding-right: 20px; margin-top: 15px; }
+        li { margin-bottom: 8px; font-size: 15px; color: #444; line-height: 1.4; }
+
+        .controls {
+            padding: 15px;
+            display: flex;
+            gap: 10px;
+            background: rgba(255,255,255,0.5);
+        }
+
+        .btn {
+            padding: 12px;
+            border: 1px solid #ccc;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+            flex: 1;
+            transition: 0.2s;
+        }
+
+        .btn:hover { background: #f5f5f5; }
+        
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            border: none;
+            flex: 2;
+        }
+        .btn-primary:hover { background: #0052cc; }
+
+        /* Mobile Adjustments */
+        @media (max-width: 600px) {
+            #interface {
+                top: auto; bottom: 0; left: 0; right: 0;
+                width: 100%;
+            }
+            .glass-panel { border-radius: 20px 20px 0 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="viewport">
+        <div id="world-map">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/7/77/Israel_relief_location_map.jpg" alt="Map of Israel" class="map-image" id="map-img">
+            <div id="markers-layer"></div>
+        </div>
+    </div>
+
+    <div id="interface">
+        <div class="glass-panel">
+            <div class="card-header">
+                <h1 id="city-title">מפת ישראל</h1>
+                <button class="close-btn" onclick="App.resetView()" title="סגור">×</button>
+            </div>
+            
+            <div id="city-image" class="image-frame" style="display:none;"></div>
+            
+            <div class="content-box">
+                <ul id="fact-list">
+                    <li>לחץ על נקודה אדומה כדי לטוס ליעד.</li>
+                    <li>השתמש בכפתורים למטה כדי לשנות תצוגה.</li>
+                </ul>
+            </div>
+
+            <div class="controls">
+                <button class="btn" onclick="App.zoom(0.5)">+</button>
+                <button class="btn" onclick="App.zoom(-0.5)">-</button>
+                <button class="btn btn-primary" onclick="App.resetView()">מבט על</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. ASSETS & DATA ---
+        const IMAGES = {
+            JERUSALEM: "https://images.unsplash.com/photo-1552423318-7b43f8a42b1f?q=80&w=800",
+            TEL_AVIV: "https://images.unsplash.com/photo-1544910731-9755100045e7?q=80&w=800",
+            HAIFA: "https://images.unsplash.com/photo-1578396307309-679883584852?q=80&w=800",
+            EILAT: "https://images.unsplash.com/photo-1574104036688-4034870f7f32?q=80&w=800",
+            DEAD_SEA: "https://images.unsplash.com/photo-1565463630132-2621115b871c?q=80&w=800",
+            TIBERIAS: "https://images.unsplash.com/photo-1493857671505-72967e2e2760?q=80&w=800",
+            NEGEV: "https://images.unsplash.com/photo-1473580044384-7ba9967e16a0?q=80&w=800",
+            GENERIC: "https://images.unsplash.com/photo-1518709450063-6f3ee1c02a27?q=80&w=800"
+        };
+
+        const CITIES = [
+            { id: 'jerusalem', name: 'ירושלים', x: 53, y: 52, img: IMAGES.JERUSALEM, facts: ["בירת ישראל והעיר הקדושה בעולם.", "שוכנת בהירי יהודה.", "הבית של הכותל המערבי וכנסיית הקבר."] },
+            { id: 'tel_aviv', name: 'תל אביב', x: 40, y: 48, img: IMAGES.TEL_AVIV, facts: ["הלב הכלכלי והתרבותי של המדינה.", "ידועה כ'עיר ללא הפסקה'.", "חופים מדהימים ומבני באוהאוס."] },
+            { id: 'haifa', name: 'חיפה', x: 48, y: 25, img: IMAGES.HAIFA, facts: ["העיר השלישית בגודלה.", "הגנים הבהאיים המפורסמים.", "עיר של דו-קיום הרמוני."] },
+            { id: 'eilat', name: 'אילת', x: 48, y: 96, img: IMAGES.EILAT, facts: ["עיר הנופש הדרומית ביותר.", "שונית האלמוגים היחידה בישראל.", "נוף להרי אדום וים סוף."] },
+            { id: 'tiberias', name: 'טבריה', x: 60, y: 27, img: IMAGES.TIBERIAS, facts: ["שוכנת על שפת הכנרת.", "עיר עתיקה עם קברי צדיקים.", "ידועה בחמי טבריה המרפאים."] },
+            { id: 'dead_sea', name: 'ים המלח', x: 60, y: 60, img: IMAGES.DEAD_SEA, facts: ["הנקודה הנמוכה ביותר בעולם.", "ריכוז מלח המאפשר ציפה.", "נוף מדברי עוצר נשימה."] },
+            { id: 'beersheba', name: 'באר שבע', x: 45, y: 65, img: IMAGES.NEGEV, facts: ["בירת הנגב.", "מרכז סייבר וטכנולוגיה עולמי.", "העיר של אברהם אבינו."] },
+            { id: 'khirbat', name: 'חורבת קייאפה', x: 48, y: 54, img: IMAGES.GENERIC, facts: ["מזוהה עם העיר המקראית שעריים.", "מבצר מתקופת דוד המלך.", "נמצאה כאן כתובת עברית קדומה."] },
+            { id: 'hermon', name: 'החרמון', x: 68, y: 5, img: IMAGES.GENERIC, facts: ["ההר הגבוה בישראל.", "אתר הסקי היחיד במדינה.", "העיניים של המדינה."] }
+        ];
+
+        // --- 2. ENGINE LOGIC ---
+        const App = {
+            state: { zoom: 1, activeId: null },
+
+            init() {
+                this.renderMap();
+                this.resetView(); // Start at "God View"
+            },
+
+            renderMap() {
+                const layer = document.getElementById('markers-layer');
+                CITIES.forEach(city => {
+                    const el = document.createElement('div');
+                    el.className = 'marker';
+                    el.dataset.name = city.name;
+                    // Positioning logic
+                    el.style.left = city.x + '%';
+                    el.style.top = city.y + '%';
+                    
+                    // Click Event
+                    el.onclick = (e) => {
+                        e.stopPropagation(); // Stop clicking map below
+                        this.flyToCity(city);
+                    };
+                    layer.appendChild(el);
+                });
+            },
+
+            // The Cinematic Camera Move
+            moveCamera(x, y, zoom) {
+                const map = document.getElementById('world-map');
+                // 1. Move origin to center (50vw, 50vh)
+                // 2. Zoom
+                // 3. Shift map so target (x,y) is at center
+                map.style.transform = `translate(50vw, 50vh) scale(${zoom}) translate(-${x}%, -${y}%)`;
+                this.state.zoom = zoom;
+            },
+
+            flyToCity(city) {
+                this.state.activeId = city.id;
+                
+                // 1. Fly to location (Zoom level 3.5)
+                this.moveCamera(city.x, city.y, 3.5);
+
+                // 2. Update UI
+                document.getElementById('city-title').innerText = city.name;
+                
+                const imgBox = document.getElementById('city-image');
+                imgBox.style.display = 'block';
+                imgBox.style.opacity = 0;
+                
+                // Fade effect for image
+                setTimeout(() => {
+                    imgBox.style.backgroundImage = `url('${city.img}')`;
+                    imgBox.style.opacity = 1;
+                }, 100);
+
+                const list = document.getElementById('fact-list');
+                list.innerHTML = city.facts.map(f => `<li>${f}</li>`).join('');
+            },
+
+            zoom(delta) {
+                let newZ = this.state.zoom + delta;
+                if (newZ < 1) newZ = 1;
+                if (newZ > 8) newZ = 8;
+                
+                // Determine where to focus zoom
+                let targetX = 50, targetY = 50;
+                if (this.state.activeId) {
+                    const city = CITIES.find(c => c.id === this.state.activeId);
+                    targetX = city.x;
+                    targetY = city.y;
+                }
+                
+                this.moveCamera(targetX, targetY, newZ);
+            },
+
+            resetView() {
+                this.state.activeId = null;
+                this.moveCamera(50, 50, 1); // Reset to center, zoom 1
+                
+                document.getElementById('city-title').innerText = "מפת ישראל";
+                document.getElementById('city-image').style.display = 'none';
+                document.getElementById('fact-list').innerHTML = `
+                    <li>לחץ על עיר במפה כדי להתקרב אליה.</li>
+                    <li>השתמש בגלגלת העכבר או בכפתורים כדי לשנות תצוגה.</li>
+                `;
+            }
+        };
+
+        // Start App when loaded
+        window.onload = () => App.init();
+    </script>
+</body>
+</html>
